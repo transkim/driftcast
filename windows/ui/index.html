@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'">
+  <title>Driftcast Receiver</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="idle">
+    <img src="icon.png" alt="" class="logo">
+    <p class="status" id="status">Ready to receive</p>
+    <h1 id="name" title="Click to rename" tabindex="0"></h1>
+    <p class="how">On your phone, open <b>Driftcast</b>, tap <b>Cast my screen</b> and pick this name.</p>
+    <p class="addr" id="addr"></p>
+    <div class="buttons">
+      <button id="rename">Rename</button>
+      <button id="forget">Forget trusted phones</button>
+      <button id="help">Help</button>
+    </div>
+    <p class="tip">If the phone can't find this laptop, allow <b>Driftcast Receiver</b> in Windows Firewall and make sure both are on the same Wi-Fi.</p>
+  </main>
+
+  <section id="watch" hidden>
+    <canvas id="screen"></canvas>
+    <div class="bar" id="bar">
+      <span id="from"></span>
+      <button id="mute">Mute</button>
+      <button id="full">Full screen</button>
+      <button id="stop" class="primary">Stop</button>
+    </div>
+    <div class="waiting" id="waiting">Waiting for the picture…</div>
+  </section>
+
+  <div class="modal" id="ask" hidden>
+    <div class="card">
+      <h2 id="ask-title"></h2>
+      <p>Show this phone's screen here?</p>
+      <div class="buttons">
+        <button id="allow" class="primary">Allow</button>
+        <button id="always">Always allow</button>
+        <button id="deny">Deny</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="rename-box" hidden>
+    <div class="card">
+      <h2>Name shown to phones</h2>
+      <input id="rename-input" maxlength="40" spellcheck="false">
+      <div class="buttons">
+        <button id="rename-save" class="primary">Save</button>
+        <button id="rename-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

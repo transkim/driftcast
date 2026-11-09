@@ -36,7 +36,7 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-      - uses: android-actions/setup-android@v3
+      # the ubuntu runner already ships the Android SDK (ANDROID_HOME)
       - run: chmod +x gradlew && ./gradlew assembleRelease --no-daemon
       - run: cp app/build/outputs/apk/release/app-release.apk ../Driftcast-0.1.0.apk
       - uses: actions/upload-artifact@v4

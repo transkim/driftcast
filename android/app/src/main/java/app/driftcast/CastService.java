@@ -14,6 +14,7 @@ import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
 import android.media.AudioAttributes;
 import android.media.AudioFormat;
+import android.media.AudioManager;
 import android.media.AudioPlaybackCaptureConfiguration;
 import android.media.AudioRecord;
 import android.media.MediaCodec;
@@ -88,6 +89,46 @@ public class CastService extends Service {
     private AudioCapture audio;
     private Writer writer;
     private String targetName = "";
+
+    // ---- where the sound plays (can change while casting) ----
+    private static volatile CastService active;
+    private volatile boolean sendSound;
+    private int savedVolume = -1;
+
+    /** Applies the Sound plays on choice to a running cast. Returns false if the cast has no sound capture. */
+    public static boolean applySoundRoute(int route) {
+        CastService s = active;
+        if (s == null || !s.running) return true;
+        main.post(() -> s.routeSound(route));
+        return route == Prefs.SOUND_PHONE || s.audio != null;
+    }
+
+    private void routeSound(int route) {
+        sendSound = route != Prefs.SOUND_PHONE && audio != null;
+        AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
+        try {
+            if (route == Prefs.SOUND_OTHER && audio != null) {
+                // silence the phone's speaker; the captured copy still goes to the other screen
+                if (savedVolume < 0) savedVolume = am.getStreamVolume(AudioManager.STREAM_MUSIC);
+                am.setStreamVolume(AudioManager.STREAM_MUSIC, 0, 0);
+            } else {
+                restoreVolume();
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "could not change phone volume", e);
+        }
+    }
+
+    private void restoreVolume() {
+        if (savedVolume < 0) return;
+        try {
+            AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
+            // only put it back if the person hasn't turned it up themselves meanwhile
+            if (am.getStreamVolume(AudioManager.STREAM_MUSIC) == 0)
+                am.setStreamVolume(AudioManager.STREAM_MUSIC, savedVolume, 0);
+        } catch (Exception ignored) {}
+        savedVolume = -1;
+    }
 
     @Override public IBinder onBind(Intent intent) { return null; }
 
@@ -176,6 +217,9 @@ public class CastService extends Service {
                 audio = new AudioCapture();
                 audio.start();
             }
+            active = this;
+            final int route = prefs.soundRoute();
+            main.post(() -> routeSound(route));
             setStatus(Status.CASTING, targetName, "");
             updateNotification("Casting to " + targetName);
 
@@ -204,6 +248,9 @@ public class CastService extends Service {
         running = false;
         if (writer != null) { writer.quit(); writer = null; }
         if (audio != null) { audio.quit(); audio = null; }
+        sendSound = false;
+        restoreVolume();
+        if (active == this) active = null;
         if (encoder != null) { encoder.quit(); encoder = null; }
         Socket s = socket;
         socket = null;
@@ -478,7 +525,7 @@ public class CastService extends Service {
                         if (r <= 0) break;
                         n += r;
                     }
-                    if (n == chunk && writer != null) writer.audio(System.nanoTime() / 1000, b);
+                    if (n == chunk && writer != null && sendSound) writer.audio(System.nanoTime() / 1000, b);
                     else if (n <= 0) Thread.sleep(10);
                 }
             } catch (Exception e) {

@@ -59,6 +59,7 @@ public class ReceiveActivity extends Activity implements SurfaceHolder.Callback 
     private Discovery.Beacon beacon;
     private volatile Session session;
     private int videoW, videoH;
+    private volatile boolean muted;
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
@@ -128,6 +129,15 @@ public class ReceiveActivity extends Activity implements SurfaceHolder.Callback 
         LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-2, -2);
         sp.leftMargin = Ui.dp(this, 20);
         bar.addView(stop, sp);
+        TextView mute = Ui.button(this, "Mute", false);
+        mute.setOnClickListener(v -> {
+            muted = !muted;
+            mute.setText(muted ? "Unmute" : "Mute");
+            showBar();
+        });
+        LinearLayout.LayoutParams mp = new LinearLayout.LayoutParams(-2, -2);
+        mp.leftMargin = Ui.dp(this, 10);
+        bar.addView(mute, mp);
         FrameLayout.LayoutParams barLp = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
         barLp.bottomMargin = Ui.dp(this, 28);
         root.addView(bar, barLp);
@@ -583,7 +593,7 @@ public class ReceiveActivity extends Activity implements SurfaceHolder.Callback 
                         if (b == null) continue;
                         // keep latency low: if far behind, drop the backlog
                         if (audioQ.size() > 8) audioQ.clear();
-                        t.write(b, 0, b.length);
+                        if (!muted) t.write(b, 0, b.length);
                     }
                 } catch (InterruptedException ignored) {
                 } finally {

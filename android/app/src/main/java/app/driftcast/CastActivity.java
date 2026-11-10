@@ -15,7 +15,6 @@ import android.view.ViewGroup;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
-import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -30,6 +29,7 @@ public class CastActivity extends Activity implements CastService.StatusListener
     private LinearLayout list, statusCard;
     private TextView statusTitle, statusSub, hint;
     private TextView smooth, sharp;
+    private TextView soundOther, soundBoth, soundPhone, routeHint;
     private Discovery.Screen pending;
 
     @Override protected void onCreate(Bundle b) {
@@ -72,14 +72,30 @@ public class CastActivity extends Activity implements CastService.StatusListener
         col.addView(opts, Ui.lp(-1, -2, Ui.dp(this, 20)));
         paintQuality();
 
-        Switch sound = new Switch(this);
-        sound.setText(Build.VERSION.SDK_INT >= 29 ? "Send sound too" : "Sound needs Android 10 or later");
-        sound.setTextColor(Ui.TEXT);
-        sound.setTextSize(16);
-        sound.setChecked(prefs.sound() && Build.VERSION.SDK_INT >= 29);
-        sound.setEnabled(Build.VERSION.SDK_INT >= 29);
-        sound.setOnCheckedChangeListener((v, on) -> prefs.setSound(on));
-        col.addView(sound, Ui.lp(-1, -2, Ui.dp(this, 12)));
+        col.addView(Ui.text(this, "Sound plays on", 14, Ui.MUTED, true), Ui.lp(-2, -2, Ui.dp(this, 20)));
+        if (Build.VERSION.SDK_INT >= 29) {
+            LinearLayout routes = Ui.row(this);
+            soundOther = chip("TV / laptop");
+            soundBoth = chip("Both");
+            soundPhone = chip("This phone");
+            soundOther.setOnClickListener(v -> setRoute(Prefs.SOUND_OTHER));
+            soundBoth.setOnClickListener(v -> setRoute(Prefs.SOUND_BOTH));
+            soundPhone.setOnClickListener(v -> setRoute(Prefs.SOUND_PHONE));
+            routes.addView(soundOther);
+            LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(-2, -2);
+            rp.leftMargin = Ui.dp(this, 8);
+            routes.addView(soundBoth, rp);
+            LinearLayout.LayoutParams rp2 = new LinearLayout.LayoutParams(-2, -2);
+            rp2.leftMargin = Ui.dp(this, 8);
+            routes.addView(soundPhone, rp2);
+            col.addView(routes, Ui.lp(-1, -2, Ui.dp(this, 8)));
+            routeHint = Ui.text(this, "", 13, Ui.MUTED, false);
+            col.addView(routeHint, Ui.lp(-1, -2, Ui.dp(this, 6)));
+            paintRoute();
+        } else {
+            col.addView(Ui.text(this, "This phone only. Sending sound needs Android 10 or later.", 15, Ui.TEXT, false),
+                    Ui.lp(-1, -2, Ui.dp(this, 6)));
+        }
 
         col.addView(Ui.text(this, "Screens on this Wi-Fi", 14, Ui.MUTED, true), Ui.lp(-2, -2, Ui.dp(this, 28)));
         list = Ui.column(this);
@@ -110,6 +126,26 @@ public class CastActivity extends Activity implements CastService.StatusListener
         Ui.cardStyle(sharp, hi ? Ui.CARD_HI : Ui.CARD);
         smooth.setTextColor(hi ? Ui.MUTED : Ui.ACCENT);
         sharp.setTextColor(hi ? Ui.ACCENT : Ui.MUTED);
+    }
+
+    private void setRoute(int r) {
+        prefs.setSoundRoute(r);
+        paintRoute();
+        if (!CastService.applySoundRoute(r))
+            Toast.makeText(this, "Stop and cast again to send sound to the other screen", Toast.LENGTH_LONG).show();
+    }
+
+    private void paintRoute() {
+        int r = prefs.soundRoute();
+        TextView[] all = {soundOther, soundBoth, soundPhone};
+        for (int i = 0; i < 3; i++) {
+            Ui.cardStyle(all[i], i == r ? Ui.CARD_HI : Ui.CARD);
+            all[i].setTextColor(i == r ? Ui.ACCENT : Ui.MUTED);
+        }
+        routeHint.setText(r == Prefs.SOUND_OTHER
+                ? "The phone goes quiet and the sound comes out of the TV or laptop. If you hear nothing there, pick Both."
+                : r == Prefs.SOUND_BOTH ? "Sound comes out of the phone and the other screen together."
+                : "Only the picture is sent. Sound stays on this phone, so you can use earphones.");
     }
 
     @Override protected void onStart() {

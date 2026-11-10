@@ -38,11 +38,11 @@ jobs:
           java-version: 17
       # the ubuntu runner already ships the Android SDK (ANDROID_HOME)
       - run: chmod +x gradlew && ./gradlew assembleRelease --no-daemon
-      - run: cp app/build/outputs/apk/release/app-release.apk ../Driftcast-0.1.0.apk
+      - run: cp app/build/outputs/apk/release/app-release.apk ../Driftcast.apk
       - uses: actions/upload-artifact@v4
         with:
           name: Driftcast-Android-apk
-          path: Driftcast-0.1.0.apk
+          path: Driftcast.apk
 
   windows:
     needs: test

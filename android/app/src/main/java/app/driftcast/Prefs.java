@@ -50,8 +50,17 @@ public final class Prefs {
 
     public void setName(String n) { sp.edit().putString("name", n == null ? null : n.trim()).apply(); }
 
-    public boolean sound() { return sp.getBoolean("sound", true); }
-    public void setSound(boolean v) { sp.edit().putBoolean("sound", v).apply(); }
+    /** Where the phone's sound plays while casting. */
+    public static final int SOUND_OTHER = 0, SOUND_BOTH = 1, SOUND_PHONE = 2;
+
+    public int soundRoute() {
+        if (!sp.contains("route") && !sp.getBoolean("sound", true)) return SOUND_PHONE; // 0.1.0 setting
+        return sp.getInt("route", SOUND_OTHER);
+    }
+    public void setSoundRoute(int r) { sp.edit().putInt("route", r).apply(); }
+
+    /** True when the phone's sound should be captured and sent to the other screen. */
+    public boolean sound() { return soundRoute() != SOUND_PHONE; }
 
     /** 0 = Smooth 720p, 1 = Sharp 1080p. */
     public int quality() { return sp.getInt("quality", 0); }

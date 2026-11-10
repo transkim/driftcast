@@ -340,7 +340,10 @@ public class ReceiveActivity extends Activity implements SurfaceHolder.Callback 
                 synchronized (this) { if (session != null && session.socket == c) session = null; }
                 return;
             }
-            Proto.writeLine(out, "{\"ok\":true,\"name\":" + JSONObject.quote(prefs.name()) + "}");
+            JSONObject okReply = new JSONObject().put("ok", true).put("name", prefs.name());
+            org.json.JSONArray asked = hello.optJSONArray("sizes");
+            if (asked != null) okReply.put("sizes", supportedSizes(asked));
+            Proto.writeLine(out, okReply.toString());
             c.setSoTimeout(15000);
             session.run();
         } catch (Exception e) {
@@ -348,6 +351,37 @@ public class ReceiveActivity extends Activity implements SurfaceHolder.Callback 
             try { c.close(); } catch (IOException ignored) {}
             synchronized (this) { if (session != null && session.socket == c) session = null; }
         }
+    }
+
+    /** Which of the phone's proposed picture sizes this device's H.264 decoders can play. */
+    private static org.json.JSONArray supportedSizes(org.json.JSONArray asked) {
+        java.util.List<android.media.MediaCodecInfo.VideoCapabilities> caps = new java.util.ArrayList<>();
+        try {
+            for (android.media.MediaCodecInfo info : new android.media.MediaCodecList(android.media.MediaCodecList.REGULAR_CODECS).getCodecInfos()) {
+                if (info.isEncoder()) continue;
+                for (String t : info.getSupportedTypes()) {
+                    if (t.equalsIgnoreCase(MediaFormat.MIMETYPE_VIDEO_AVC)) {
+                        android.media.MediaCodecInfo.VideoCapabilities v =
+                                info.getCapabilitiesForType(t).getVideoCapabilities();
+                        if (v != null) caps.add(v);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "codec list", e);
+        }
+        org.json.JSONArray out = new org.json.JSONArray();
+        for (int i = 0; i < asked.length(); i++) {
+            org.json.JSONArray wh = asked.optJSONArray(i);
+            if (wh == null) continue;
+            int w = wh.optInt(0), h = wh.optInt(1);
+            boolean ok = caps.isEmpty(); // unknown: let the phone try
+            for (android.media.MediaCodecInfo.VideoCapabilities v : caps) {
+                try { if (v.isSizeSupported(w, h)) { ok = true; break; } } catch (Exception ignored) {}
+            }
+            if (ok) out.put(wh);
+        }
+        return out;
     }
 
     /** Shows Allow / Always allow / Deny and waits for the answer. */
@@ -495,6 +529,7 @@ public class ReceiveActivity extends Activity implements SurfaceHolder.Callback 
                     MediaFormat f = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, w, h);
                     f.setByteBuffer("csd-0", ByteBuffer.wrap(sps));
                     if (pps != null) f.setByteBuffer("csd-1", ByteBuffer.wrap(pps));
+                    f.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, Math.max(w * h * 3 / 2, 1 << 20));
                     if (Build.VERSION.SDK_INT >= 30) f.setInteger(MediaFormat.KEY_LOW_LATENCY, 1);
                     if (Build.VERSION.SDK_INT >= 23) f.setInteger(MediaFormat.KEY_PRIORITY, 0);
                     MediaCodec mc = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
@@ -504,6 +539,7 @@ public class ReceiveActivity extends Activity implements SurfaceHolder.Callback 
                         f = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, w, h);
                         f.setByteBuffer("csd-0", ByteBuffer.wrap(sps));
                         if (pps != null) f.setByteBuffer("csd-1", ByteBuffer.wrap(pps));
+                        f.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, Math.max(w * h * 3 / 2, 1 << 20));
                         mc.reset();
                         mc.configure(f, s, null, 0);
                     }
@@ -516,6 +552,10 @@ public class ReceiveActivity extends Activity implements SurfaceHolder.Callback 
                 } catch (Exception e) {
                     Log.e(TAG, "decoder failed", e);
                     codec = null;
+                    final int fw = w, fh = h;
+                    ui.post(() -> android.widget.Toast.makeText(ReceiveActivity.this,
+                            "This screen can't play a " + fw + "\u00D7" + fh + " picture. Try Smooth 720p on the phone.",
+                            android.widget.Toast.LENGTH_LONG).show());
                 }
             }
             send(Proto.REQUEST_KEY);
@@ -554,7 +594,10 @@ public class ReceiveActivity extends Activity implements SurfaceHolder.Callback 
                     ByteBuffer buf = mc.getInputBuffer(idx);
                     buf.clear();
                     if (buf.capacity() < p.data.length) {
+                        // frame too big for the decoder's buffer: skip to the next key frame
                         mc.queueInputBuffer(idx, 0, 0, p.pts, 0);
+                        needKey = true;
+                        send(Proto.REQUEST_KEY);
                         return;
                     }
                     buf.put(p.data);

@@ -162,7 +162,9 @@ public final class Discovery {
                         if (!running) break;
                     }
                     long now = SystemClock.elapsedRealtime();
-                    if (screens.values().removeIf(x -> now - x.seen > 4500)) changed = true;
+                    for (java.util.Iterator<Screen> it = screens.values().iterator(); it.hasNext(); ) {
+                        if (now - it.next().seen > 4500) { it.remove(); changed = true; }
+                    }
                     if (changed || now - lastPush > 2000) {
                         lastPush = now;
                         listener.onScreens(new ArrayList<>(screens.values()));

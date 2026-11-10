@@ -89,6 +89,24 @@ public class CastService extends Service {
     private AudioCapture audio;
     private Writer writer;
     private String targetName = "";
+    /** Sizes the receiver's decoder accepts ("WxH"), or null when it takes anything. */
+    private volatile java.util.Set<String> supported;
+    private static final int[] LONG_SIDES = {1920, 1600, 1440, 1280, 1088, 960, 864, 720, 640, 480};
+
+    private int[] realSize() {
+        DisplayManager dm = (DisplayManager) getSystemService(Context.DISPLAY_SERVICE);
+        Display d = dm.getDisplay(Display.DEFAULT_DISPLAY);
+        DisplayMetrics m = new DisplayMetrics();
+        d.getRealMetrics(m);
+        return new int[]{m.widthPixels, m.heightPixels, m.densityDpi};
+    }
+
+    /** w x h scaled so the long side is at most L, rounded to multiples of 16. */
+    static int[] scaled(int w, int h, int L) {
+        double scale = Math.min(1.0, L / (double) Math.max(w, h));
+        return new int[]{Math.max(16, (int) Math.round(w * scale / 16.0) * 16),
+                Math.max(16, (int) Math.round(h * scale / 16.0) * 16)};
+    }
 
     // ---- where the sound plays (can change while casting) ----
     private static volatile CastService active;
@@ -196,6 +214,15 @@ public class CastService extends Service {
             JSONObject hello = new JSONObject();
             hello.put("name", prefs.name()).put("id", prefs.id()).put("audio", sound)
                     .put("model", Build.MODEL).put("app", BuildConfig.VERSION_NAME);
+            // every picture size we might send; the receiver says which its decoder can play
+            org.json.JSONArray cands = new org.json.JSONArray();
+            int[] real = realSize();
+            for (int L : LONG_SIDES) {
+                int[] a = scaled(real[0], real[1], L), b = scaled(real[1], real[0], L);
+                cands.put(new org.json.JSONArray().put(a[0]).put(a[1]));
+                cands.put(new org.json.JSONArray().put(b[0]).put(b[1]));
+            }
+            hello.put("sizes", cands);
             Proto.writeLine(rawOut, Proto.HELLO + hello);
             setStatus(Status.WAITING, targetName, "");
             updateNotification("Waiting for " + targetName + " to allow…");
@@ -208,6 +235,15 @@ public class CastService extends Service {
             }
             s.setSoTimeout(0);
             if (!running) return;
+            supported = null;
+            org.json.JSONArray ok = reply.optJSONArray("sizes");
+            if (ok != null) {
+                supported = new java.util.HashSet<>();
+                for (int i = 0; i < ok.length(); i++) {
+                    org.json.JSONArray wh = ok.optJSONArray(i);
+                    if (wh != null) supported.add(wh.optInt(0) + "x" + wh.optInt(1));
+                }
+            }
 
             writer = new Writer(new BufferedOutputStream(rawOut, 128 * 1024));
             writer.start();
@@ -293,7 +329,7 @@ public class CastService extends Service {
                 .setContentText(text)
                 .setOngoing(true)
                 .setContentIntent(open)
-                .addAction(new Notification.Action.Builder(null, "Stop", stop).build());
+                .addAction(new Notification.Action.Builder(R.drawable.ic_stat_cast, "Stop", stop).build());
         return b.build();
     }
 
@@ -373,16 +409,19 @@ public class CastService extends Service {
         void quit() { alive = false; }
 
         private int[] size() {
-            DisplayManager dm = (DisplayManager) getSystemService(Context.DISPLAY_SERVICE);
-            Display d = dm.getDisplay(Display.DEFAULT_DISPLAY);
-            DisplayMetrics m = new DisplayMetrics();
-            d.getRealMetrics(m);
-            int w = m.widthPixels, h = m.heightPixels;
+            int[] r = realSize();
             int max = quality == 1 ? 1920 : 1280;
-            double scale = Math.min(1.0, max / (double) Math.max(w, h));
-            int ew = Math.max(16, (int) Math.round(w * scale / 16.0) * 16);
-            int eh = Math.max(16, (int) Math.round(h * scale / 16.0) * 16);
-            return new int[]{ew, eh, m.densityDpi};
+            java.util.Set<String> ok = supported;
+            int[] last = null;
+            for (int L : LONG_SIDES) {
+                if (L > max) continue;
+                int[] c = scaled(r[0], r[1], L);
+                last = c;
+                if (ok == null || ok.contains(c[0] + "x" + c[1])) return new int[]{c[0], c[1], r[2]};
+            }
+            // nothing listed as supported: send the smallest picture and hope for the best
+            Log.w(TAG, "receiver supports none of our sizes");
+            return new int[]{last[0], last[1], r[2]};
         }
 
         @Override public void onDisplayAdded(int id) {}

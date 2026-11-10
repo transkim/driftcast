@@ -151,6 +151,7 @@ public class CastActivity extends Activity implements CastService.StatusListener
     @Override protected void onStart() {
         super.onStart();
         CastService.addListener(this);
+        shown = null;
         scanner = new Discovery.Scanner(this, prefs.id(), screens -> runOnUiThread(() -> showScreens(screens)));
         scanner.start();
     }
@@ -161,7 +162,14 @@ public class CastActivity extends Activity implements CastService.StatusListener
         super.onStop();
     }
 
+    private String shown = null;
+
     private void showScreens(List<Discovery.Screen> screens) {
+        // rebuild only when something changed, otherwise a tap that lands mid-rebuild is lost
+        StringBuilder key = new StringBuilder();
+        for (Discovery.Screen s : screens) key.append(s.id).append('|').append(s.name).append('|').append(s.host).append(':').append(s.port).append(';');
+        if (key.toString().equals(shown)) return;
+        shown = key.toString();
         list.removeAllViews();
         hint.setVisibility(screens.isEmpty() ? View.VISIBLE : View.GONE);
         for (Discovery.Screen s : screens) {

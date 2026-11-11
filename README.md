@@ -26,6 +26,8 @@ Every push builds both apps on GitHub Actions. Open the latest green run under *
 
 ## Good to know
 
+- A TV stays ready in the background once Driftcast has been opened on it (and again after a restart). When a phone casts, the TV wakes up and shows the Allow prompt by itself. Turn this off from the "Driftcast is ready to receive" notification.
+
 - **Sound plays on**: pick **TV / laptop** (the phone goes quiet), **Both**, or **This phone** (only the picture is sent, handy with earphones). You can switch while casting. Receivers also have a **Mute** button.
 - Sound needs Android 10 or later on the sending phone. Apps that block screen recording (Netflix-style DRM, some banking apps) show black or are silent by design.
 - Both devices must be on the same Wi-Fi, and the router must let devices see each other (guest networks often block this). If the phone can't find a screen, use **Enter an address instead** with the address shown on the receiver.

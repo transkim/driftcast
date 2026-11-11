@@ -32,8 +32,6 @@ import org.json.JSONObject;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.net.InetSocketAddress;
-import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.util.List;
@@ -43,7 +41,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /** Receiver: waits for a phone, then shows its screen and plays its sound. */
-public class ReceiveActivity extends Activity implements SurfaceHolder.Callback {
+public class ReceiveActivity extends Activity implements SurfaceHolder.Callback, ReceiverService.Sink {
     private static final String TAG = "Driftcast";
 
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -55,8 +53,6 @@ public class ReceiveActivity extends Activity implements SurfaceHolder.Callback 
     private volatile android.view.Surface surface;
     private volatile CountDownLatch surfaceReady = new CountDownLatch(1);
 
-    private Server server;
-    private Discovery.Beacon beacon;
     private volatile Session session;
     private int videoW, videoH;
     private volatile boolean muted;
@@ -65,6 +61,10 @@ public class ReceiveActivity extends Activity implements SurfaceHolder.Callback 
         super.onCreate(b);
         prefs = new Prefs(this);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        // a phone may open this screen while the TV or phone is asleep or locked
+        if (Build.VERSION.SDK_INT >= 27) { setShowWhenLocked(true); setTurnScreenOn(true); }
+        else getWindow().addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+                | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
         build();
     }
 
@@ -171,7 +171,9 @@ public class ReceiveActivity extends Activity implements SurfaceHolder.Callback 
 
     private void showAddresses() {
         List<String> a = Discovery.localAddresses();
-        String port = server != null && server.port != Proto.STREAM_PORT ? ":" + server.port : "";
+        int p = ReceiverService.port();
+        if (p == 0) { ui.postDelayed(this::showAddresses, 1000); }
+        String port = p != 0 && p != Proto.STREAM_PORT ? ":" + p : "";
         StringBuilder sb = new StringBuilder();
         for (String s : a) { if (sb.length() > 0) sb.append("   "); sb.append(s).append(port); }
         addrText.setText(a.isEmpty() ? "Not connected to Wi-Fi" : "Address: " + sb);
@@ -240,23 +242,24 @@ public class ReceiveActivity extends Activity implements SurfaceHolder.Callback 
     // ---------------- lifecycle ----------------
     @Override protected void onStart() {
         super.onStart();
-        server = new Server();
-        server.start();
+        ReceiverService.start(this);
+        ReceiverService.attach(this);
+        showAddresses();
     }
 
     @Override protected void onStop() {
+        ReceiverService.detach(this);
         stopSession();
-        if (beacon != null) { beacon.quit(); beacon = null; }
-        if (server != null) { server.quit(); server = null; }
         super.onStop();
     }
 
-    private void restartBeacon() {
-        if (beacon != null) beacon.quit();
-        if (server == null || server.port == 0) return;
-        beacon = new Discovery.Beacon(prefs.id(), prefs.name(), Prefs.kind(this), server.port);
-        beacon.start();
+    @Override protected void onDestroy() {
+        // TVs stay ready in the background; phones stop receiving when this screen is closed
+        if (isFinishing() && !Prefs.isTv(this)) ReceiverService.stop(this);
+        super.onDestroy();
     }
+
+    private void restartBeacon() { ReceiverService.refresh(); }
 
     @Override public void surfaceCreated(SurfaceHolder h) { surface = h.getSurface(); surfaceReady.countDown(); }
     @Override public void surfaceChanged(SurfaceHolder h, int f, int w, int hh) { surface = h.getSurface(); }
@@ -273,55 +276,9 @@ public class ReceiveActivity extends Activity implements SurfaceHolder.Callback 
     }
 
     // ---------------- network ----------------
-    private final class Server extends Thread {
-        private volatile ServerSocket ss;
-        volatile int port;
-        private volatile boolean alive = true;
-
-        Server() { super("driftcast-server"); setDaemon(true); }
-
-        void quit() {
-            alive = false;
-            try { if (ss != null) ss.close(); } catch (IOException ignored) {}
-        }
-
-        @Override public void run() {
-            int[] tries = {Proto.STREAM_PORT, Proto.STREAM_PORT + 10, Proto.STREAM_PORT + 20};
-            for (int p : tries) {
-                try {
-                    ServerSocket s = new ServerSocket();
-                    s.setReuseAddress(true);
-                    s.bind(new InetSocketAddress(p));
-                    ss = s;
-                    port = p;
-                    break;
-                } catch (IOException e) {
-                    Log.w(TAG, "port " + p + " busy");
-                }
-            }
-            if (ss == null) {
-                ui.post(() -> statusText.setText("Could not open a network port"));
-                return;
-            }
-            ui.post(() -> { restartBeacon(); showAddresses(); });
-            while (alive) {
-                try {
-                    Socket c = ss.accept();
-                    new Thread(() -> handle(c), "driftcast-conn").start();
-                } catch (IOException e) {
-                    if (!alive) break;
-                }
-            }
-        }
-    }
-
-    private void handle(Socket c) {
+    /** A phone said hello (the service already read the line). */
+    @Override public void onIncoming(Socket c, JSONObject hello) {
         try {
-            c.setTcpNoDelay(true);
-            c.setSoTimeout(10000);
-            String line = Proto.readLine(c.getInputStream());
-            if (!line.startsWith(Proto.HELLO)) { c.close(); return; }
-            JSONObject hello = new JSONObject(line.substring(Proto.HELLO.length()));
             String name = hello.optString("name", "A phone");
             String id = hello.optString("id", "");
             OutputStream out = c.getOutputStream();

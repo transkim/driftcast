@@ -43,6 +43,7 @@ jobs:
         with:
           name: Driftcast-Android-apk
           path: Driftcast.apk
+          retention-days: 3
 
   windows:
     needs: test
@@ -66,3 +67,4 @@ jobs:
         with:
           name: Driftcast-Receiver-Windows-installer
           path: windows/dist/*.exe
+          retention-days: 3
